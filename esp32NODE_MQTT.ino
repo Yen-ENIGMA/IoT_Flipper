@@ -5,7 +5,7 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include <BLEServer.h>
-#include <IRremote.h>
+// #include <IRremote.h>        // IR remote not used
 #include <esp_wifi.h>
 #include <esp_wifi_types.h>
 #include <DNSServer.h>
@@ -30,18 +30,20 @@ const char* wifi_password = "YOUR_WIFI_PASSWORD";
 
 // Original multi-tool configuration
 #define SERIAL_BAUD_RATE 115200
-#define IR_RECEIVE_PIN 15
-#define IR_SEND_PIN 4
+// #define IR_RECEIVE_PIN 15      // IR pins no longer needed
+// #define IR_SEND_PIN 4          // IR pins no longer needed
 #define RC522_SS_PIN 5
 #define RC522_RST_PIN 22
 
-IRrecv irrecv(IR_RECEIVE_PIN);
-IRsend irsend(IR_SEND_PIN);
+// IR functionality commented out:
+// IRrecv irrecv(IR_RECEIVE_PIN);
+// IRsend irsend(IR_SEND_PIN);
+
 MFRC522 rfid(RC522_SS_PIN, RC522_RST_PIN);
 
 String currentAttack = "";
-unsigned long lastIRCode = 0;
-decode_results irResults;
+// unsigned long lastIRCode = 0;   // IR code storage no longer needed
+// decode_results irResults;       // IR decode results not used
 DNSServer dnsServer;
 WebServer webServer(80);
 
@@ -101,7 +103,8 @@ void setup() {
   
   // Original initializations
   BLEDevice::init("");
-  irrecv.enableIRIn();
+  // IR functionality commented out:
+  // irrecv.enableIRIn();
   SPI.begin();
   rfid.PCD_Init();
   
@@ -122,12 +125,14 @@ void loop() {
     processCommand(command);
   }
   
-  // Check for IR code if capturing
+  // Check for IR code if capturing - IR functionality commented out
+  /*
   if (currentAttack == "IR_CAPTURE" && irrecv.decode(&irResults)) {
     lastIRCode = irResults.value;
     sendResponse("IR_CAPTURE:CODE:" + String(lastIRCode, HEX));
     irrecv.resume();
   }
+  */
   
   // Handle DNS for Evil Twin attack
   if (currentAttack == "EVIL_TWIN") {
@@ -150,8 +155,9 @@ void processCommand(const String& command) {
     sendResponse("WIFI BEACON <prefix> <count> - Spam fake beacon frames");
     sendResponse("BLE SCAN - Scan for BLE devices");
     sendResponse("BLE SPAM <count> - Spam BLE advertisements");
-    sendResponse("IR CAPTURE - Capture IR signals");
-    sendResponse("IR SEND <code> - Send IR code");
+    // IR commands commented out:
+    // sendResponse("IR CAPTURE - Capture IR signals");
+    // sendResponse("IR SEND <code> - Send IR code");
     sendResponse("RFID READ - Read RFID tag");
     sendResponse("RFID WRITE <data> - Write data to RFID tag");
     sendResponse("EVIL TWIN <SSID> - Create evil twin access point");
@@ -198,6 +204,8 @@ void processCommand(const String& command) {
     // Execute BLE spam
     currentAttack = "BLE_SPAM";
   }
+  // IR functionality commented out:
+  /*
   else if (cmd == "IR CAPTURE") {
     sendResponse("IR_CAPTURE:START");
     currentAttack = "IR_CAPTURE";
@@ -210,6 +218,7 @@ void processCommand(const String& command) {
     irsend.sendNEC(code, 32);
     currentAttack = "";
   }
+  */
   else if (cmd == "RFID READ") {
     sendResponse("RFID_READ:START");
     // Execute RFID read
