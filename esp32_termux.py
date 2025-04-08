@@ -11,9 +11,9 @@ LOGS_TOPIC = "esp32/logs"
 
 # Allowed users and their passwords
 ALLOWED_USERS = {
-    "VNCNT": "9142327534",
-    "VSPR": "9567283585",
-    "KSYP": "8606413490"
+    "VNCNT": "91423",
+    "VSPR": "95672",
+    "KSYP": "75111"
 }
 
 def authenticate():
