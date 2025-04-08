@@ -5,7 +5,8 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include <BLEServer.h>
-// #include <IRremote.h>        // IR remote not used
+// IR functionality removed
+// #include <IRremote.h>
 #include <esp_wifi.h>
 #include <esp_wifi_types.h>
 #include <DNSServer.h>
@@ -13,136 +14,64 @@
 #include <SPIFFS.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <PubSubClient.h>
+// MQTT libraries removed
 #include <ArduinoJson.h>
 
-// MQTT Configuration
-const char* mqtt_server = "broker.hivemq.com";
-const int mqtt_port = 1883;
-const char* mqtt_topic_commands = "esp32/commands";
-const char* mqtt_topic_logs = "esp32/logs";
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
-
-// WiFi Credentials (configure these)
+// WiFi Credentials (configure these as needed)
 const char* wifi_ssid = "YOUR_WIFI_SSID";
 const char* wifi_password = "YOUR_WIFI_PASSWORD";
 
 // Original multi-tool configuration
 #define SERIAL_BAUD_RATE 115200
-// #define IR_RECEIVE_PIN 15      // IR pins no longer needed
-// #define IR_SEND_PIN 4          // IR pins no longer needed
+// IR pins and objects removed since IR is not used
+// #define IR_RECEIVE_PIN 15
+// #define IR_SEND_PIN 4
 #define RC522_SS_PIN 5
 #define RC522_RST_PIN 22
 
-// IR functionality commented out:
+// Remove IR objects since IR feature is not implemented
 // IRrecv irrecv(IR_RECEIVE_PIN);
 // IRsend irsend(IR_SEND_PIN);
 
 MFRC522 rfid(RC522_SS_PIN, RC522_RST_PIN);
 
 String currentAttack = "";
-// unsigned long lastIRCode = 0;   // IR code storage no longer needed
-// decode_results irResults;       // IR decode results not used
-DNSServer dnsServer;
-WebServer webServer(80);
+unsigned long lastIRCode = 0;  // no longer used but kept for potential future reference
+// decode_results irResults;   // removed IR decode results
 
-// Add MQTT connection function
-void mqttReconnect() {
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    String clientId = "ESP32-MultiTool-";
-    clientId += String(random(0xffff), HEX);
-    
-    if (mqttClient.connect(clientId.c_str())) {
-      Serial.println("connected");
-      mqttClient.subscribe(mqtt_topic_commands);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" retrying in 5 seconds");
-      delay(5000);
-    }
-  }
-}
+// Remove DNS and WebServer as MQTT/Evil Twin features are omitted
+// DNSServer dnsServer;
+// WebServer webServer(80);
 
-// Modified output function to handle both Serial and MQTT
+/////////////////////////////////////////////////////////
+// Command Processing Functions (Serial Only)
+/////////////////////////////////////////////////////////
+
+// Send response to Serial output
 void sendResponse(const String& message) {
   Serial.println(message);
-  if (mqttClient.connected()) {
-    mqttClient.publish(mqtt_topic_logs, message.c_str());
-  }
 }
 
-// MQTT Callback Handler
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String message;
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
+// Execute Wi-Fi scan and output networks found
+void executeWifiScan() {
+  int networks = WiFi.scanNetworks(false, true, false, 300);
+  if (networks == 0) {
+    sendResponse("WIFI_SCAN:NO_NETWORKS");
+  } else {
+    sendResponse("WIFI_SCAN:FOUND:" + String(networks));
+    for (int i = 0; i < networks; i++) {
+      // Format: WIFI_NETWORK:<BSSID>:<SSID>:<RSSI>:<channel>
+      String output = "WIFI_NETWORK:" + WiFi.BSSIDstr(i) + ":" +
+                      WiFi.SSID(i) + ":" + WiFi.RSSI(i) + ":" +
+                      WiFi.channel(i);
+      sendResponse(output);
+    }
+    sendResponse("WIFI_SCAN:COMPLETE");
   }
-  
-  // Process the command directly (same format as serial commands)
-  processCommand(message);
+  WiFi.scanDelete();
 }
 
-// Modified setup function
-void setup() {
-  Serial.begin(SERIAL_BAUD_RATE);
-  
-  // Connect to WiFi
-  WiFi.begin(wifi_ssid, wifi_password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected");
-  
-  // Initialize MQTT
-  mqttClient.setServer(mqtt_server, mqtt_port);
-  mqttClient.setCallback(mqttCallback);
-  
-  // Original initializations
-  BLEDevice::init("");
-  // IR functionality commented out:
-  // irrecv.enableIRIn();
-  SPI.begin();
-  rfid.PCD_Init();
-  
-  Serial.println(F("READY"));
-}
-
-// Modified loop function
-void loop() {
-  // Handle MQTT connection
-  if (!mqttClient.connected()) {
-    mqttReconnect();
-  }
-  mqttClient.loop();
-
-  // Original serial handling
-  if (Serial.available() > 0) {
-    String command = Serial.readStringUntil('\n');
-    processCommand(command);
-  }
-  
-  // Check for IR code if capturing - IR functionality commented out
-  /*
-  if (currentAttack == "IR_CAPTURE" && irrecv.decode(&irResults)) {
-    lastIRCode = irResults.value;
-    sendResponse("IR_CAPTURE:CODE:" + String(lastIRCode, HEX));
-    irrecv.resume();
-  }
-  */
-  
-  // Handle DNS for Evil Twin attack
-  if (currentAttack == "EVIL_TWIN") {
-    dnsServer.processNextRequest();
-    webServer.handleClient();
-  }
-  
-  delay(10);
-}
-
+// Main command processor. Commands are read from Serial.
 void processCommand(const String& command) {
   String cmd = command;
   cmd.trim();
@@ -152,15 +81,13 @@ void processCommand(const String& command) {
     sendResponse("Available commands:");
     sendResponse("WIFI SCAN - Scan for nearby WiFi networks");
     sendResponse("WIFI DEAUTH <BSSID> - Deauthenticate devices from a network");
-    sendResponse("WIFI BEACON <prefix> <count> - Spam fake beacon frames");
-    sendResponse("BLE SCAN - Scan for BLE devices");
-    sendResponse("BLE SPAM <count> - Spam BLE advertisements");
-    // IR commands commented out:
-    // sendResponse("IR CAPTURE - Capture IR signals");
-    // sendResponse("IR SEND <code> - Send IR code");
-    sendResponse("RFID READ - Read RFID tag");
-    sendResponse("RFID WRITE <data> - Write data to RFID tag");
-    sendResponse("EVIL TWIN <SSID> - Create evil twin access point");
+    sendResponse("WIFI BEACON <prefix> <count> - Beacon Flood attack");
+    sendResponse("WIFI JAM <channel> - Jam WiFi on a specified channel");
+    sendResponse("BT SCAN - Scan for Bluetooth devices");
+    sendResponse("BT SPAMPAIR <address> <duration> - Spam Bluetooth pairing");
+    sendResponse("NFC SCAN - Scan for NFC tag");
+    sendResponse("NFC WRITE <UID> - Write NFC tag data");
+    // IR and other commands removed
     sendResponse("STOP - Stop current attack");
   }
   else if (cmd.startsWith("WIFI SCAN")) {
@@ -175,7 +102,7 @@ void processCommand(const String& command) {
       return;
     }
     sendResponse("WIFI_DEAUTH:START:" + target);
-    // Execute deauth attack
+    // Add WiFi deauth attack code here if implemented.
     currentAttack = "WIFI_DEAUTH";
   }
   else if (cmd.startsWith("WIFI BEACON")) {
@@ -188,59 +115,56 @@ void processCommand(const String& command) {
     String countStr = cmd.substring(space1 + 1);
     int count = countStr.toInt();
     sendResponse("WIFI_BEACON:START:" + prefix + ":" + String(count));
-    // Execute beacon spam
+    // Add beacon flood implementation here.
     currentAttack = "WIFI_BEACON";
   }
-  else if (cmd == "BLE SCAN") {
-    sendResponse("BLE_SCAN:START");
-    // Execute BLE scan
-    currentAttack = "BLE_SCAN";
-  }
-  else if (cmd.startsWith("BLE SPAM")) {
-    String countStr = cmd.substring(8);
-    countStr.trim();
-    int count = countStr.toInt();
-    sendResponse("BLE_SPAM:START:" + String(count));
-    // Execute BLE spam
-    currentAttack = "BLE_SPAM";
-  }
-  // IR functionality commented out:
-  /*
-  else if (cmd == "IR CAPTURE") {
-    sendResponse("IR_CAPTURE:START");
-    currentAttack = "IR_CAPTURE";
-  }
-  else if (cmd.startsWith("IR SEND")) {
-    String codeStr = cmd.substring(7);
-    codeStr.trim();
-    unsigned long code = strtoul(codeStr.c_str(), NULL, 16);
-    sendResponse("IR_SEND:CODE:" + String(code, HEX));
-    irsend.sendNEC(code, 32);
-    currentAttack = "";
-  }
-  */
-  else if (cmd == "RFID READ") {
-    sendResponse("RFID_READ:START");
-    // Execute RFID read
-    currentAttack = "RFID_READ";
-  }
-  else if (cmd.startsWith("RFID WRITE")) {
-    String data = cmd.substring(10);
-    data.trim();
-    sendResponse("RFID_WRITE:DATA:" + data);
-    // Execute RFID write
-    currentAttack = "RFID_WRITE";
-  }
-  else if (cmd.startsWith("EVIL TWIN")) {
-    String ssid = cmd.substring(9);
-    ssid.trim();
-    if (ssid.length() == 0) {
-      sendResponse("ERROR:NO_SSID");
+  else if (cmd.startsWith("WIFI JAM")) {
+    String chStr = cmd.substring(10);
+    chStr.trim();
+    int channel = chStr.toInt();
+    if (channel <= 0) {
+      sendResponse("ERROR:INVALID_CHANNEL");
       return;
     }
-    sendResponse("EVIL_TWIN:START:" + ssid);
-    // Setup evil twin
-    currentAttack = "EVIL_TWIN";
+    sendResponse("WIFI_JAM:START:Channel:" + String(channel));
+    // Add channel jamming implementation here.
+    currentAttack = "WIFI_JAM";
+  }
+  else if (cmd == "BT SCAN") {
+    sendResponse("BT_SCAN:START");
+    // Add Bluetooth scan implementation here.
+    currentAttack = "BT_SCAN";
+  }
+  else if (cmd.startsWith("BT SPAMPAIR")) {
+    // Expect command format: BT SPAMPAIR <address> <duration>
+    int firstSpace = cmd.indexOf(' ', 12);
+    if (firstSpace == -1) {
+      sendResponse("ERROR:INVALID_FORMAT");
+      return;
+    }
+    String address = cmd.substring(12, firstSpace);
+    String durationStr = cmd.substring(firstSpace + 1);
+    durationStr.trim();
+    int duration = durationStr.toInt();
+    sendResponse("BT_SPAMPAIR:START:" + address + ":" + String(duration));
+    // Add Bluetooth spam pairing implementation here.
+    currentAttack = "BT_SPAMPAIR";
+  }
+  else if (cmd == "NFC SCAN") {
+    sendResponse("NFC_SCAN:START");
+    // Add NFC scanning code here.
+    currentAttack = "NFC_SCAN";
+  }
+  else if (cmd.startsWith("NFC WRITE")) {
+    String uid = cmd.substring(10);
+    uid.trim();
+    if (uid.length() == 0) {
+      sendResponse("ERROR:NO_UID");
+      return;
+    }
+    sendResponse("NFC_WRITE:UID:" + uid);
+    // Add NFC writing implementation here.
+    currentAttack = "NFC_WRITE";
   }
   else if (cmd == "STOP") {
     sendResponse("STOPPED:" + currentAttack);
@@ -251,21 +175,38 @@ void processCommand(const String& command) {
   }
 }
 
-void executeWifiScan() {
-  int networks = WiFi.scanNetworks(false, true, false, 300);
+/////////////////////////////////////////////////////////
+// Setup and Main Loop
+/////////////////////////////////////////////////////////
+
+void setup() {
+  Serial.begin(SERIAL_BAUD_RATE);
   
-  if (networks == 0) {
-    sendResponse("WIFI_SCAN:NO_NETWORKS");
-  } else {
-    sendResponse("WIFI_SCAN:FOUND:" + String(networks));
-    
-    for (int i = 0; i < networks; i++) {
-      String output = "WIFI_NETWORK:" + WiFi.BSSIDstr(i) + ":" + 
-                      WiFi.SSID(i) + ":" + WiFi.RSSI(i) + ":" + 
-                      WiFi.channel(i);
-      sendResponse(output);
-    }
-    sendResponse("WIFI_SCAN:COMPLETE");
+  // Connect to WiFi network (if required for your attacks)
+  WiFi.begin(wifi_ssid, wifi_password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-  WiFi.scanDelete();
+  Serial.println("\nWiFi connected");
+  
+  // Initialize BLE and other peripherals
+  BLEDevice::init("");
+  // IR initialization removed
+  SPI.begin();
+  rfid.PCD_Init();
+  
+  // Print READY message
+  Serial.println(F("READY"));
+}
+
+void loop() {
+  // Check for Serial commands
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    processCommand(command);
+  }
+  // You can add periodic activities here if needed.
+  
+  delay(10);
 }
